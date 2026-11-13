@@ -24,17 +24,19 @@ Main Features:
    - Allows configuration of which events/results to wait for (distance, raw subevents, remote results, etc.).
 """
 
-import os
 import datetime
+import os
 import sys
 import time
 import threading
+import csv
 import matplotlib.pyplot as plt
 
 # Uncomment line below for local debug of packages
 # sys.path.append(r"../unpi")
 # sys.path.append(r"../rtls")
 # sys.path.append(r"../ble_device")
+
 
 from ble_device import (
     BleDevice,
@@ -183,6 +185,8 @@ def search_peer_name(peer_names: list, adv_data: bytes) -> str:
 
 
 """ new code: function """
+
+
 def search_and_connect_to_peer(car_node: BleDevice, peer_names: list, max_retries: int = 5) -> dict:
     """
     NEW IMPLEMENTATION SUMMARY:
@@ -195,8 +199,9 @@ def search_and_connect_to_peer(car_node: BleDevice, peer_names: list, max_retrie
         connected_and_paired = False
 
         for attempt in range(1, max_retries + 1):
-            print(f"\n--- [Attempt {attempt}/{max_retries}] Scanning for peer: '{peer_target}' ---")
-            
+            print(
+                f"\n--- [Attempt {attempt}/{max_retries}] Scanning for peer: '{peer_target}' ---")
+
             # Start scanning
             car_node.central.start_scan(0, 0, 0)
             continue_scan = True
@@ -206,25 +211,30 @@ def search_and_connect_to_peer(car_node: BleDevice, peer_names: list, max_retrie
                 time.sleep(1e-12)
 
                 if car_node.all_event_list.is_event_in_list(CentralEventType.NWP_ADV_REPORT):
-                    adv_report = car_node.all_event_list.get_event_from_list(CentralEventType.NWP_ADV_REPORT)
+                    adv_report = car_node.all_event_list.get_event_from_list(
+                        CentralEventType.NWP_ADV_REPORT)
                     if adv_report:
-                        peer_name = search_peer_name([peer_target], adv_report["data"])
+                        peer_name = search_peer_name(
+                            [peer_target], adv_report["data"])
                         if peer_name is not None:
                             car_node.central.stop_scan()
                             continue_scan = False
 
                             peer_addr_type = adv_report["address_type"]
                             peer_address = adv_report["address"].copy()
-                            print(f"Create a connection with {peer_address} ({peer_name}) as central...")
-                            car_node.central.connect(peer_addr_type, peer_address, 1, 0)
-                            
+                            print(
+                                f"Create a connection with {peer_address} ({peer_name}) as central...")
+                            car_node.central.connect(
+                                peer_addr_type, peer_address, 1, 0)
+
                             connection_data = car_node.wait_for_event(
                                 event_type=ConnectionEventType.NWP_LINK_ESTABLISHED_EVENT,
                                 timeout=60,
                             )
 
             if not connection_data:
-                print(f"ERROR: Connection link establishment failed for {peer_target}. Retrying...")
+                print(
+                    f"ERROR: Connection link establishment failed for {peer_target}. Retrying...")
                 continue
 
             print_connection_data(connection_data)
@@ -233,11 +243,13 @@ def search_and_connect_to_peer(car_node: BleDevice, peer_names: list, max_retrie
             pairing_data = None
             start_time = time.time()
             pairing_timeout = 30  # Extended timeout for high-attenuation environments
-            
-            print(f"Waiting for pairing events from peer {peer_target} (timeout: {pairing_timeout}s)", end="", flush=True)
+
+            print(
+                f"Waiting for pairing events from peer {peer_target} (timeout: {pairing_timeout}s)", end="", flush=True)
             while True:
                 print(".", end="", flush=True)
-                event_type, event_data = car_node.wait_for_any_event(timeout=0.2)
+                event_type, event_data = car_node.wait_for_any_event(
+                    timeout=0.2)
 
                 if event_type is not None and event_data is not None:
                     if event_type == PairingEventType.NWP_PAIRING_STATE_COMPLETE:
@@ -250,7 +262,8 @@ def search_and_connect_to_peer(car_node: BleDevice, peer_names: list, max_retrie
                         break
 
                 if time.time() - start_time > pairing_timeout:
-                    print(f"\nTimeout waiting for pairing events ({pairing_timeout} seconds)")
+                    print(
+                        f"\nTimeout waiting for pairing events ({pairing_timeout} seconds)")
                     break
 
             if pairing_data and pairing_data.get("status") == 0:
@@ -259,18 +272,24 @@ def search_and_connect_to_peer(car_node: BleDevice, peer_names: list, max_retrie
                 connected_and_paired = True
                 break  # Successfully connected and paired
             else:
-                print(f"\nPairing failed on attempt {attempt}. Retrying connection...")
+                print(
+                    f"\nPairing failed on attempt {attempt}. Retrying connection...")
                 time.sleep(1)
 
         if not connected_and_paired:
-            print(f"ERROR: Failed to connect and pair with {peer_target} after {max_retries} attempts!")
+            print(
+                f"ERROR: Failed to connect and pair with {peer_target} after {max_retries} attempts!")
             return None
 
     return connections
+
+
 """new code ends here"""
 
 
 """ new code: function """
+
+
 def start_cs_config(car_node, conn_handle, auto_config=False):
     """
     NEW IMPLEMENTATION SUMMARY:
@@ -323,6 +342,8 @@ def start_cs_config(car_node, conn_handle, auto_config=False):
             return False
 
     return True
+
+
 """new code ends here"""
 
 
@@ -565,57 +586,85 @@ def main():
         ax_confidence.set_xlabel("Time (sec)")
         ax_confidence.set_ylim(0, 105)
 
+        # Start of CSV implementation
+        # Create csv folder path and folder
+        csv_dir = os.path.join(os.path.dirname(
+        os.path.abspath(__file__)), "data_logs")
+        os.makedirs(csv_dir, exist_ok=True)
+
+        csv_name = f"distance_measurements_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
+        csv_path = os.path.join(csv_dir, csv_name)
+
+        MAX_VALID_DISTANCE_CM = 10000
         start_time = time.monotonic()
-        for i in range(170):
-            for conn_handle in connections.values():
-                cs_set_procedure_params["conn_handle"] = conn_handle
 
-                if not cs_auto_config:
-                    car_node.cs.set_procedure_params(cs_set_procedure_params)
-                time.sleep(0.2)
+        print(f"Saving measurements to: {csv_path}")
 
-                result = cs_proc_enable(
-                    car_node,
-                    conn_handle,
-                    cs_set_procedure_params["max_procedure_count"],
-                    wait_for_remote=cs_wait_for_remote,
-                    wait_for_distance=cs_wait_for_distance,
-                    extended_results=cs_extended_results,
-                    wait_for_raw_events=cs_wait_for_raw_events,
-                    auto_config=cs_auto_config,
-                    ras_profile=cs_ras_profile,
-                )
-                if result:
-                    distance, confidence = result
-                    
-                    """ new code here that gets rid of high outliers """
-                    # Filters out corrupt 0xFFFFFFFF / 4*10^9 cm error spikes during signal loss
-                    MAX_VALID_DISTANCE_CM = 10000
+        with open(csv_path, "w", newline='', encoding="utf-8") as csv_file:
+            csv_writer = csv.writer(csv_file)
 
-                    if distance < MAX_VALID_DISTANCE_CM and confidence > 0:
+            csv_writer.writerow(["timestamp", "elsapsed_seconds", "distance_cm", "confidence"])
+
+            for i in range(170):
+                for conn_handle in connections.values():
+                    cs_set_procedure_params["conn_handle"] = conn_handle
+
+                    if not cs_auto_config:
+                        car_node.cs.set_procedure_params(cs_set_procedure_params)
+                    time.sleep(0.2)
+
+                    result = cs_proc_enable(
+                        car_node,
+                        conn_handle,
+                        cs_set_procedure_params["max_procedure_count"],
+                        wait_for_remote=cs_wait_for_remote,
+                        wait_for_distance=cs_wait_for_distance,
+                        extended_results=cs_extended_results,
+                        wait_for_raw_events=cs_wait_for_raw_events,
+                        auto_config=cs_auto_config,
+                        ras_profile=cs_ras_profile,
+                    )
+                    if result:
+                        distance, confidence = result
+
+                        # Log CSV innformation
                         elapsed_time = time.monotonic() - start_time
-                        time_vals.append(elapsed_time)
-                        distance_vals.append(distance)
-                        confidence_vals.append(confidence)
 
-                        # Francis's dynamic line update and axis rescale logic
-                        distance_line.set_data(time_vals, distance_vals)
-                        confidence_line.set_data(time_vals, confidence_vals)
+                        csv_writer.writerow([
+                            datetime.datetime.now().isoformat(timespec="milliseconds"),
+                            round(elapsed_time, 3),
+                            distance,
+                            confidence,
+                        ])
 
-                        ax_distance.relim()
-                        ax_distance.autoscale_view()
+                        csv_file.flush()
+                        """ new code here that gets rid of high outliers """
+                        # Filters out corrupt 0xFFFFFFFF / 4*10^9 cm error spikes during signal loss
 
-                        ax_confidence.relim()
+                        if distance < MAX_VALID_DISTANCE_CM and confidence > 0:
 
-                        print(
-                            f"MAIN -> Distance: {distance} cm, Confidence: {confidence}")
-                    else:
-                        print(
-                            f"MAIN -> Ignored invalid spike reading: Distance={distance} cm, Confidence={confidence}")
-                    """ new code ends here """
+                            time_vals.append(elapsed_time)
+                            distance_vals.append(distance)
+                            confidence_vals.append(confidence)
 
-                # Keeps the Matplotlib GUI responsive
-                plt.pause(0.01)
+                            # Francis's dynamic line update and axis rescale logic
+                            distance_line.set_data(time_vals, distance_vals)
+                            confidence_line.set_data(time_vals, confidence_vals)
+
+                            ax_distance.relim()
+                            ax_distance.autoscale_view()
+
+                            ax_confidence.relim()
+
+                            print(
+                                f"MAIN -> Distance: {distance} cm, Confidence: {confidence}")
+                        else:
+                            print(
+                                f"MAIN -> Ignored invalid spike reading: Distance={distance} cm, Confidence={confidence}")
+                        """ new code ends here """
+
+                    # Keeps the Matplotlib GUI responsive
+                    plt.pause(0.01)
 
     car_node.done()
 
